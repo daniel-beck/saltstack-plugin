@@ -1,5 +1,6 @@
 package com.waytta;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -7,6 +8,10 @@ import java.util.Map;
 import java.util.logging.Logger;
 import java.util.logging.Level;
 
+import hudson.FilePath;
+import hudson.model.Run;
+import hudson.model.TaskListener;
+import jenkins.tasks.SimpleBuildStep;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
@@ -39,7 +44,9 @@ import net.sf.json.JSONObject;
 import net.sf.json.JSONSerializer;
 import net.sf.json.util.JSONUtils;
 
-public class SaltAPIBuilder extends Builder {
+import javax.annotation.Nonnull;
+
+public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
     private static final Logger LOGGER = Logger.getLogger("com.waytta.saltstack");
 
     private final String servername;
@@ -49,7 +56,8 @@ public class SaltAPIBuilder extends Builder {
     private final String function;
     private String arguments;
     private String kwarguments;
-    private final String clientInterface;
+    private final String clientInterfaceString;
+    private ClientInterface clientInterface;
     private final Boolean blockbuild;
     private final Integer jobPollTime;
     private final String batchSize;
@@ -72,7 +80,8 @@ public class SaltAPIBuilder extends Builder {
         this.target = target;
         this.targettype = targettype;
         this.function = function;
-        this.clientInterface = clientInterface.getDescriptor().getDisplayName();
+        this.clientInterfaceString = clientInterface.getDescriptor().getDisplayName();
+        this.clientInterface = clientInterface;
         if (clientInterface instanceof ClientInterface.Local) {
             this.blockbuild = ((ClientInterface.Local) clientInterface).isBlockBuild();
             this.jobPollTime = ((ClientInterface.Local) clientInterface).getJobPollTime();
@@ -150,9 +159,11 @@ public class SaltAPIBuilder extends Builder {
         this.kwarguments = kwarguments;
     }
 
-    public String getClientInterface() {
+    public ClientInterface getClientInterface() {
         return clientInterface;
     }
+
+    public String getClientInterfaceString() { return clientInterfaceString; }
 
     public Boolean getBlockbuild() {
         return blockbuild;
@@ -195,207 +206,11 @@ public class SaltAPIBuilder extends Builder {
         return saveEnvVar;
     }
 
+
     @Override
-    public boolean perform(AbstractBuild build, Launcher launcher, BuildListener listener) {
-        // This is where you 'build' the project.
+    public void perform(@Nonnull Run<?, ?> run, @Nonnull FilePath filePath, @Nonnull Launcher launcher, @Nonnull TaskListener taskListener) throws InterruptedException, IOException {
 
-        // If not not configured, grab the default
-        int myJobPollTime = 10;
-        if (jobPollTime == null) {
-            myJobPollTime = getDescriptor().getPollTime();
-        } else {
-            myJobPollTime = jobPollTime;
-        }
-
-        String myOutputFormat = getDescriptor().getOutputFormat();
-        String myClientInterface = clientInterface;
-        String myservername = Utils.paramorize(build, listener, servername);
-        String mytarget = Utils.paramorize(build, listener, target);
-        String myfunction = Utils.paramorize(build, listener, function);
-        String myarguments = Utils.paramorize(build, listener, arguments);
-        String mykwarguments = Utils.paramorize(build, listener, kwarguments);
-        Boolean myBlockBuild = blockbuild;
-
-        StandardUsernamePasswordCredentials credential = getCredentialById(getCredentialsId());
-        if (credential == null) {
-            listener.error("Invalid credentials");
-            return true;
-        }
-
-        // Setup connection for auth
-        String token = new String();
-        JSONArray authArray = createAuthArray(credential);
-        // listener.getLogger().println("Sending auth: "+authArray.toString());
-        JSONObject httpResponse = new JSONObject();
-        JSONArray returnArray = new JSONArray();
-
-        // Get an auth token
-        token = Utils.getToken(myservername, authArray);
-        if (token.contains("Error")) {
-            listener.getLogger().println(token);
-            return false;
-        }
-        // If we got this far auth must have been good and we've got a token
-
-        // Hardcode clientInterface if not yet set. Once constructor runs, this
-        // will not be necessary
-        if (myClientInterface == null) {
-            myClientInterface = "local";
-        }
-        if (saveEnvVar == null) {
-            saveEnvVar = false;
-        }
-
-        JSONObject saltFunc = prepareSaltFunction(build, listener, myClientInterface, mytarget, myfunction, myarguments,
-                mykwarguments);
-
-        JSONArray saltArray = new JSONArray();
-        saltArray.add(saltFunc);
-
-        LOGGER.log(Level.FINE, "Sending JSON: " + saltArray.toString());
-        
-
-        if (myBlockBuild == null) {
-            // Set a sane default if uninitialized
-            myBlockBuild = false;
-        }
-
-        // blocking request
-        if (myBlockBuild) {
-            String jid = new String();
-            // Send request to /minion url. This will give back a jid which we
-            // will need to poll and lookup for completion
-            httpResponse = Utils.getJSON(myservername + "/minions", saltArray, token);
-            try {
-                returnArray = httpResponse.getJSONArray("return");
-                for (Object o : returnArray) {
-                    JSONObject line = (JSONObject) o;
-                    jid = line.getString("jid");
-                }
-                // Print out success
-                listener.getLogger().println("Running jid: " + jid);
-            } catch (Exception e) {
-                listener.getLogger().println("Problem: " + myfunction + " " + myarguments + " to " + myservername
-                        + " for " + mytarget + ":\n" + e + "\n\n" + httpResponse.toString(2));
-                return false;
-            }
-
-            // Request successfully sent. Now use jid to check if job complete
-            int numMinions = 0;
-            int numMinionsDone = 0;
-            httpResponse = Utils.getJSON(myservername + "/jobs/" + jid, null, token);
-            try {
-                // info array will tell us how many minions were targeted
-                returnArray = httpResponse.getJSONArray("info");
-                for (Object o : returnArray) {
-                    JSONObject line = (JSONObject) o;
-                    JSONArray minionsArray = line.getJSONArray("Minions");
-                    // Check the info[Minions[]] array to see how many nodes we
-                    // expect to hear back from
-                    numMinions = minionsArray.size();
-                    listener.getLogger().println("Waiting for " + numMinions + " minions");
-                }
-                returnArray = httpResponse.getJSONArray("return");
-                // Check the return[] array to see how many minions have
-                // responded
-                if (!returnArray.getJSONObject(0).names().isEmpty()) {
-                    numMinionsDone = returnArray.getJSONObject(0).names().size();
-                } else {
-                    numMinionsDone = 0;
-                }
-                listener.getLogger().println(numMinionsDone + " minions are done");
-            } catch (Exception e) {
-                listener.getLogger().println("Problem: " + myfunction + " " + myarguments + " to " + myservername
-                        + " for " + mytarget + ":\n" + e + "\n\n" + httpResponse.toString(2));
-                return false;
-            }
-
-            // Now that we know how many minions have responded, and how many we
-            // are waiting on. Let's see more have finished
-            if (numMinionsDone < numMinions) {
-                // Don't print annying messages unless we really are waiting for
-                // more minions to return
-                listener.getLogger()
-                        .println("Will check status every " + String.valueOf(myJobPollTime) + " seconds...");
-            }
-            while (numMinionsDone < numMinions) {
-                try {
-                    Thread.sleep(myJobPollTime * 1000);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    // Allow user to cancel job in jenkins interface
-                    listener.getLogger().println("Cancelling job");
-                    return false;
-                }
-                httpResponse = Utils.getJSON(myservername + "/jobs/" + jid, null, token);
-                try {
-                    returnArray = httpResponse.getJSONArray("return");
-                    numMinionsDone = returnArray.getJSONObject(0).names().size();
-                } catch (Exception e) {
-                    listener.getLogger().println("Problem: " + myfunction + " " + myarguments + " for " + mytarget
-                            + ":\n" + e + "\n\n" + httpResponse.toString(2).split("\\\\n")[0]);
-                    return false;
-                }
-            }
-        } else {
-            // Just send a salt request. Don't wait for reply
-            httpResponse = Utils.getJSON(myservername, saltArray, token);
-            try {
-                returnArray = httpResponse.getJSONArray("return");
-                if (!httpResponse.getJSONArray("return").isArray()) {
-                    // Print problem
-                    listener.getLogger().println("Problem on " + myfunction + " " + myarguments + " for " + mytarget
-                            + ":\n" + httpResponse.toString(2));
-                    return false;
-                }
-            } catch (Exception e) {
-                listener.getLogger().println("Problem with " + myfunction + " " + myarguments + " for " + mytarget
-                        + ":\n" + e + "\n\n" + httpResponse.toString(2).split("\\\\n")[0]);
-                return false;
-            }
-        }
-        // Done sending message. Check for error and print out results
-        if (returnArray.get(0).toString().contains("TypeError")) {
-            listener.getLogger().println("Salt reported an error for " + myfunction + " " + myarguments + " for "
-                    + mytarget + ":\n" + returnArray.toString(2));
-            return false;
-        }
-
-        LOGGER.log(Level.FINE, "Received response: " + returnArray);
-
-
-        boolean validFunctionExecution = Utils.validateFunctionCall(returnArray);
-
-        if (!validFunctionExecution) {
-            listener.getLogger().println("ERROR occurred !\nERROR: One or more minion did not return code 0 for "
-                    + myfunction + " " + myarguments + " for " + mytarget + ":\n" + returnArray.toString(2));
-            // Save saltapi output to env if requested
-            if (saveEnvVar) {
-                build.addAction(new PublishEnvVarAction("SALTBUILDOUTPUT", returnArray.toString()));
-            }
-            return false;
-        }
-
-        // Loop is done. We have heard back from everybody. Good work team!
-        listener.getLogger().println("Response on " + myfunction + " " + myarguments + " for " + mytarget + ":");
-        if (myOutputFormat.equals("json")) {
-            listener.getLogger().println(returnArray.toString(2));
-        } else if (myOutputFormat.equals("yaml")) {
-            Object outputObject = returnArray.toArray();
-            Yaml yaml = new Yaml();
-            listener.getLogger().println(yaml.dump(outputObject));
-        } else {
-            listener.getLogger().println("Error: Unknown output Format: x" + myOutputFormat + "x");
-            return false;
-        }
-
-        // Save saltapi output to env if requested
-        if (saveEnvVar) {
-            build.addAction(new PublishEnvVarAction("SALTBUILDOUTPUT", returnArray.toString()));
-        }
-
-        // No fail condition reached. Must be good.
-        return true;
+        taskListener.getLogger().println(this.getJobPollTime());
     }
 
     private JSONArray createAuthArray(StandardUsernamePasswordCredentials credential) {
