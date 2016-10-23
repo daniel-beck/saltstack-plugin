@@ -12,4 +12,5 @@
     <input name="clientInterface" type="hidden" value="local"/>
   </f:invisibleEntry>
 
+  <f:class-entry clazz="com.waytta.ClientInterface$Local" />
 </j:jelly>

@@ -49,7 +49,6 @@ public class SaltAPIBuilder extends Builder {
     private final String function;
     private String arguments;
     private String kwarguments;
-    private final JSONObject clientInterfaces;
     private final String clientInterface;
     private final Boolean blockbuild;
     private final Integer jobPollTime;
@@ -66,46 +65,36 @@ public class SaltAPIBuilder extends Builder {
     // "DataBoundConstructor"
     @DataBoundConstructor
     public SaltAPIBuilder(String servername, String authtype, String target, String targettype, String function,
-            JSONObject clientInterfaces, String mods, String pillarkey, String pillarvalue, String credentialsId) {
+            ClientInterface clientInterface, String credentialsId) {
         this.credentialsId = credentialsId;
         this.servername = servername;
         this.authtype = authtype;
         this.target = target;
         this.targettype = targettype;
         this.function = function;
-        this.clientInterfaces = clientInterfaces;
-        if (clientInterfaces.has("clientInterface")) {
-            this.clientInterface = clientInterfaces.get("clientInterface").toString();
-        } else {
-            this.clientInterface = "local";
-        }
-        if (clientInterface.equals("local")) {
-            this.blockbuild = clientInterfaces.getBoolean("blockbuild");
-            this.jobPollTime = clientInterfaces.getInt("jobPollTime");
+        this.clientInterface = clientInterface.getDescriptor().getDisplayName();
+        if (clientInterface instanceof ClientInterface.Local) {
+            this.blockbuild = ((ClientInterface.Local) clientInterface).isBlockBuild();
+            this.jobPollTime = ((ClientInterface.Local) clientInterface).getJobPollTime();
             this.batchSize = "100%";
             this.mods = "";
             this.usePillar = false;
             this.pillarkey = "";
             this.pillarvalue = "";
-        } else if (clientInterface.equals("local_batch")) {
-            this.batchSize = clientInterfaces.get("batchSize").toString();
+        } else if (clientInterface instanceof ClientInterface.LocalBatch) {
+            this.batchSize = ((ClientInterface.LocalBatch) clientInterface).getBatchSize();
             this.blockbuild = false;
             this.jobPollTime = 10;
             this.mods = "";
             this.usePillar = false;
             this.pillarkey = "";
             this.pillarvalue = "";
-        } else if (clientInterface.equals("runner")) {
-            this.mods = clientInterfaces.get("mods").toString();
-            if (clientInterfaces.has("usePillar")) {
-                this.usePillar = true;
-                this.pillarkey = clientInterfaces.getJSONObject("usePillar").get("pillarkey").toString();
-                this.pillarvalue = clientInterfaces.getJSONObject("usePillar").get("pillarvalue").toString();
-            } else {
-                this.usePillar = false;
-                this.pillarkey = "";
-                this.pillarvalue = "";
-            }
+        } else if (clientInterface instanceof ClientInterface.Runner) {
+            // TODO restore setting values
+            this.mods = "";
+            this.usePillar = true;
+            this.pillarkey = "";
+            this.pillarvalue = "";
             this.blockbuild = false;
             this.jobPollTime = 10;
             this.batchSize = "100%";

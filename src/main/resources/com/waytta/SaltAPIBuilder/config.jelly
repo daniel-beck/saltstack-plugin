@@ -19,7 +19,7 @@
    title="${%Test Connection}" progress="${%Testing...}"
    method="testConnection" with="servername,credentialsId,authtype" />
 
-  <f:dropdownList name="clientInterfaces" title="Client Interface">
+  <f:dropdownList name="clientInterface" title="Client Interface">
     <f:dropdownListBlock title="local" value="local" selected="${instance.clientInterface == 'local'}">
       <st:include page="local.jelly" class="com.waytta.SaltAPIBuilder"/>
     </f:dropdownListBlock>

@@ -21,4 +21,5 @@
     <input name="clientInterface" type="hidden" value="runner"/>
   </f:invisibleEntry>
 
+  <f:class-entry clazz="com.waytta.ClientInterface$Runner" />
 </j:jelly>

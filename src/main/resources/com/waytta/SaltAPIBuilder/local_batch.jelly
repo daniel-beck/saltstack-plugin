@@ -8,4 +8,5 @@
     <input name="clientInterface" type="hidden" value="local_batch"/>
   </f:invisibleEntry>
 
+  <f:class-entry clazz="com.waytta.ClientInterface$LocalBatch" />
 </j:jelly>
