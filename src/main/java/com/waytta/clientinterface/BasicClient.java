@@ -12,15 +12,20 @@ public class BasicClient {
     private String pillarvalue = "";
     private Boolean blockBuild = Boolean.FALSE;
     private Integer jobPollTime = DEFAULT_JOB_POLL_TIME;
+    private String clientInterface = "";
     
 
-    public BasicClient(String credentialsId, String target, String targetType, String function) {
-        this.credentialsId = credentialsId;
+    public BasicClient(String clientinterface, String credentialsId, String target, String targetType, String function) {
+        this.clientInterface = clientinterface;
+    	this.credentialsId = credentialsId;
         this.target = target;
         this.targetType = targetType;
         this.function = function;
     }
 
+    public String getClientInterface() {
+    	return clientInterface;
+    }
 
     public String getPillarValue() {
         return pillarvalue;

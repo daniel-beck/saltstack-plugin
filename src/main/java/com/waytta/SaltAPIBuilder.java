@@ -58,40 +58,16 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
     private String authtype;
     private String arguments;
     private String kwarguments;
-    private final String clientInterfaceName;
     private Boolean saveEnvVar = false;
     private BasicClient clientInterface;
 
     // Fields in config.jelly must match the parameter names in the
     // "DataBoundConstructor"
     @DataBoundConstructor
-    public SaltAPIBuilder(String servername, String authtype, String target, String targettype, String function, JSONObject clientInterfaces, String credentialsId) {
+    public SaltAPIBuilder(String servername, String authtype, String target, String targettype, String function, String credentialsId) {
 
         this.servername = servername;
         this.authtype = authtype;
-
-        if (clientInterfaces.has("clientInterface")) {
-            this.clientInterfaceName = clientInterfaces.get("clientInterface").toString();
-        } else {
-            this.clientInterfaceName = "local";
-        }
-
-        switch (clientInterfaceName) {
-            case "local":
-                clientInterface = new LocalClient(credentialsId, clientInterfaces.get("target").toString(), clientInterfaces.get("targetType").toString(), function, clientInterfaces.getBoolean("blockbuild"), clientInterfaces.getInt("jobPollTime"));
-                break;
-
-            case "local_batch":
-                clientInterface = new LocalBatchClient(credentialsId, clientInterfaces.get("target").toString(), clientInterfaces.get("targetType").toString(), function, clientInterfaces.get("batchSize").toString());
-                break;
-
-            case "runner":
-                clientInterface = new RunnerClient(credentialsId, function, clientInterfaces.get("mods").toString(), clientInterfaces.get("pillarvalue").toString());
-                break;
-
-            default:
-                clientInterface = new BasicClient(credentialsId, target, targettype, function);
-        }
     }
 
     /*
@@ -135,10 +111,6 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
         this.kwarguments = kwarguments;
     }
 
-    public String getClientInterface() {
-        return clientInterfaceName;
-    }
-
     public Boolean getBlockbuild() {
         return clientInterface.getBlockBuild();
     }
@@ -162,6 +134,10 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
     public String getCredentialsId() {
         return clientInterface.getCredentialsId();
     }
+    
+    public String getClientinterface() {
+    	return clientInterface.getClientInterface();
+    }
 
     @DataBoundSetter
     public void setSaveEnvVar(Boolean saveEnvVar) {
@@ -183,7 +159,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
     //    @Override
     public boolean perform(Run build, Launcher launcher, TaskListener listener) throws InterruptedException, IOException {
         String myOutputFormat = getDescriptor().getOutputFormat();
-        String myClientInterface = clientInterfaceName;
+        String myClientInterface = getClientinterface();
         String myservername = Utils.paramorize(build, listener, servername);
         String mytarget = Utils.paramorize(build, listener, getTarget());
         String myfunction = Utils.paramorize(build, listener, clientInterface.getFunction());
